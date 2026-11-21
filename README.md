@@ -7,8 +7,10 @@ A small, production-style test automation framework in **TypeScript**:
 | Layer | Tool | Target |
 |---|---|---|
 | UI tests | Playwright (Chromium), Page Object Model | [SauceDemo](https://www.saucedemo.com) |
+| Accessibility | axe-core (WCAG 2.1 A and AA) | SauceDemo login, inventory, checkout |
 | API tests | Playwright `request` fixture | [Restful-Booker](https://restful-booker.herokuapp.com) |
 | Contract test | Pact JS (consumer side, Pact spec V3) | Pact mock server |
+| Performance | k6 (5 virtual users, 30 seconds, thresholds) | Restful-Booker |
 | CI | GitHub Actions | push, PR, nightly, manual |
 | Test management | Xray Cloud (JUnit import) | Jira project of your choice |
 
@@ -18,11 +20,13 @@ A small, production-style test automation framework in **TypeScript**:
 src/
   pages/        Page objects (LoginPage, InventoryPage, CheckoutPage)
   clients/      Typed API client used by the Pact consumer test
-  data/         Test data builders and demo users
+  data/         Test data builders, demo users, accessibility baseline
 tests/
-  ui/           Browser tests
+  ui/           Browser tests, including axe accessibility scans
   api/          REST API tests (auth, CRUD, negative case)
   contract/     Pact consumer contract test
+perf/
+  booking-smoke.js  k6 performance smoke test
 scripts/
   xray-import.sh  Authenticates with Xray and uploads reports/junit.xml
 .github/workflows/tests.yml
@@ -37,6 +41,8 @@ npm test                 # everything
 npm run test:ui          # UI only
 npm run test:api         # API only
 npm run test:contract    # Pact only, writes pacts/BookingWebClient-BookingAPI.json
+npm run test:a11y        # accessibility scans only
+npm run test:perf        # k6 smoke test (needs k6 installed)
 npm run report           # open the HTML report
 ```
 
@@ -49,6 +55,28 @@ and records the interaction (`GET /booking/:id`) with type and regex matchers ra
 The generated pact file is uploaded as a CI artifact. In a full setup it would be published to a
 Pact Broker / PactFlow and verified by the provider pipeline, with `can-i-deploy` gating releases.
 
+## Accessibility checks
+
+`tests/ui/accessibility.spec.ts` runs axe against the login, inventory and checkout pages using the
+WCAG 2.1 A and AA rule sets. The full axe output for each page is attached to the HTML report.
+
+Issues that can't be fixed straight away go in a known-issues baseline (`src/data/a11yKnownIssues.ts`).
+The tests fail only on new violations and flag any baseline entry that is no longer found, so
+accessibility debt is tracked rather than ignored. The baseline is currently empty because the scans
+are clean.
+
+## Performance smoke test
+
+`perf/booking-smoke.js` runs 5 virtual users for 30 seconds against the Booking API list and read
+endpoints. It is kept small on purpose because Restful-Booker is a shared public demo service.
+
+- **Setup** wakes the service and creates a booking the run owns, so results don't depend on shared data.
+- **Thresholds** are the pass or fail criteria: error rate under 1%, checks over 99%, and p95 response
+  time under 1500 ms for the list endpoint and 1000 ms for a single booking.
+- **Teardown** deletes the booking.
+
+If a threshold is breached, k6 exits non-zero and the CI job fails. The summary is uploaded as an artifact.
+
 ## CI pipeline
 
 `.github/workflows/tests.yml`:
@@ -58,6 +86,8 @@ Pact Broker / PactFlow and verified by the provider pipeline, with `can-i-deploy
 3. Upload the HTML report, traces/videos on failure, and the pact file
 4. Push the JUnit results to Xray (runs even when tests fail, so failures are recorded)
 5. Fail the job if any test failed
+
+A separate `performance` job installs k6, runs the smoke test and uploads `k6-summary.json`.
 
 ## Xray integration
 
