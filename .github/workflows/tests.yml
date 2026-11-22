@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [master, main, 'claude/**']
+    branches: [master, main]
   pull_request:
   workflow_dispatch:
   schedule:
@@ -79,3 +79,26 @@ jobs:
       - name: Fail the job if tests failed
         if: steps.tests.outcome == 'failure'
         run: exit 1
+
+  performance:
+    name: k6 performance smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 smoke test
+        run: |
+          mkdir -p reports
+          k6 run --summary-export reports/k6-summary.json perf/booking-smoke.js
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: reports/k6-summary.json
+          if-no-files-found: warn
